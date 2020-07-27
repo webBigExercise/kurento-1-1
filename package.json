@@ -1,0 +1,21 @@
+{
+  "name": "kurento-1-1",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.17.1",
+    "kurento-client": "^6.14.0",
+    "socket.io": "^2.3.0",
+
+
+    "kurento-utils": "^6.14.0",
+    "socket.io-client": "^2.3.0",
+    "webrtc-adapter": "^7.6.3"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.4",
+    "webpack": "^4.43.0",
+    "webpack-cli": "^3.3.12"
+  }
+}
