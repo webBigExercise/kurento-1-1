@@ -11,6 +11,15 @@ socket.on('connect', () => {
 
 })
 
+document.querySelector('#stop-btn').onclick = function () {
+  socket.emit('stop-call', {
+    data: {
+      callerId: socket.id,
+      calleeId: document.querySelector('#to').value
+    }
+  })
+}
+
 document.querySelector('#call-btn').onclick = function makeCall() {
   const webRtcPeerOptions = {
     localVideo: document.querySelector('#videoInput'),
@@ -72,6 +81,8 @@ socket.on('client-have-incoming-call', async ({data}) => {
     }
   )
 })
+
+
 
 socket.on('server-send-kurento-candidate', ({data}) => {
   webRtcPeer.addIceCandidate(data.candidate)

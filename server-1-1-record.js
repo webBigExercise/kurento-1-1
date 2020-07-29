@@ -2,8 +2,8 @@ const https = require('https')
 const express = require('express')
 const fs = require('fs')
 const socketIo = require('socket.io')
-const { promisify } = require('util')
 const kurento = require('kurento-client')
+const _ = require('lodash')
 
 const port = 3000
 const kurentoUrl = 'ws://localhost:8888/kurento'
@@ -16,13 +16,14 @@ const server = https.createServer(httpsOption, app)
 const io = socketIo(server)
 const sessionStore = []
 const candidateStore = {}
+const candidateReady = {}
 
 io.on('connection', async (socket) => {
-  const kurentoClient = await promisify(kurento).bind(kurento)(kurentoUrl)
+  const kurentoClient = await kurento(kurentoUrl)
   sessionStore.push({
     id: socket.id,
     socket,
-    pipeline: null,
+    pipelines: [],
     webRtcEndpoint: null,
     sdp: null,
   })
@@ -44,15 +45,27 @@ io.on('connection', async (socket) => {
     const callee = sessionStore.find((i) => i.id === calleeId)
     callee.sdp = data.sdp
 
-    const pipeline = await promisify(kurentoClient.create).bind(kurentoClient)(
-      'MediaPipeline'
-    )
-    const calleeWebRtcEndpoint = await promisify(pipeline.create).bind(
-      pipeline
-    )('WebRtcEndpoint')
-    const callerWebRtcEndpoint = await promisify(pipeline.create).bind(
-      pipeline
-    )('WebRtcEndpoint')
+    const pipeline = await kurentoClient.create('MediaPipeline')
+    const calleeWebRtcEndpoint = await pipeline.create('WebRtcEndpoint')
+    const callerWebRtcEndpoint = await pipeline.create('WebRtcEndpoint')
+    const recorderEndpoint = await pipeline.create('RecorderEndpoint', {
+      // mediaProfile: 'MP4',
+      uri:
+        'file:///tmp/video-' +
+        callerId +
+        '--------to-------' +
+        calleeId +
+        '.webm',
+    })
+
+    pipeline.recorderEndpoint = recorderEndpoint
+    caller.pipelines.push(pipeline)
+    callee.pipelines.push(pipeline)
+
+    const composite = await pipeline.create('Composite')
+    const callerHubport = await composite.createHubPort()
+    const calleeHubport = await composite.createHubPort()
+    const recorderHubport = await composite.createHubPort()
 
     // still not guarantee webRtcEndpoint can add all candidate
     // demo only
@@ -84,31 +97,38 @@ io.on('connection', async (socket) => {
       })
     })
 
-    await promisify(calleeWebRtcEndpoint.connect).bind(calleeWebRtcEndpoint)(
-      callerWebRtcEndpoint
-    )
-    await promisify(callerWebRtcEndpoint.connect).bind(callerWebRtcEndpoint)(
-      calleeWebRtcEndpoint
-    )
+    await calleeWebRtcEndpoint.connect(callerWebRtcEndpoint)
+    await callerWebRtcEndpoint.connect(calleeWebRtcEndpoint)
+    await callerWebRtcEndpoint.connect(recorderEndpoint)
+    // await recorderEndpoint.record()
+
+    // await recorderHubport.connect(recorderEndpoint)
+    // await callerWebRtcEndpoint.connect(callerHubport)
+    // await calleeWebRtcEndpoint.connect(calleeHubport)
+    // await callerHubport.connect(callerWebRtcEndpoint)
+    // await calleeHubport.connect(calleeWebRtcEndpoint)
+
+    callerWebRtcEndpoint.on('OnIceGatheringDone', async (error) => {
+      candidateReady[callerId] = true
+      if (candidateReady[calleeId]) {
+        recorderEndpoint.record()
+      }
+    })
+    calleeWebRtcEndpoint.on('OnIceGatheringDone', async (error) => {
+      candidateReady[calleeId] = true
+      if (candidateReady[callerId]) {
+        recorderEndpoint.record()
+      }
+    })
 
     caller.webRtcEndpoint = callerWebRtcEndpoint
     callee.webRtcEndpoint = calleeWebRtcEndpoint
 
-    const callerAnswerSdp = await promisify(
-      callerWebRtcEndpoint.processOffer
-    ).bind(callerWebRtcEndpoint)(caller.sdp)
+    const callerAnswerSdp = await callerWebRtcEndpoint.processOffer(caller.sdp)
+    await callerWebRtcEndpoint.gatherCandidates()
 
-    await promisify(callerWebRtcEndpoint.gatherCandidates).bind(
-      callerWebRtcEndpoint
-    )()
-
-    const calleeAnswerSdp = await promisify(
-      calleeWebRtcEndpoint.processOffer
-    ).bind(calleeWebRtcEndpoint)(callee.sdp)
-
-    await promisify(calleeWebRtcEndpoint.gatherCandidates).bind(
-      calleeWebRtcEndpoint
-    )()
+    const calleeAnswerSdp = await calleeWebRtcEndpoint.processOffer(callee.sdp)
+    await calleeWebRtcEndpoint.gatherCandidates()
 
     caller.socket.emit('start-communication', {
       data: { sdp: callerAnswerSdp },
@@ -116,13 +136,6 @@ io.on('connection', async (socket) => {
     callee.socket.emit('start-communication', {
       data: { sdp: calleeAnswerSdp },
     })
-    // sessionStore[socket.id] = {
-    //   pipeline,
-    //   callerWebRtcEndpoint,
-    // }
-
-    // await promisify(webRtcEndpoint.gatherCandidates).bind(webRtcEndpoint)()
-    // socket.emit('server-answer-sdp', { data: { sdp: answerSdp } })
   })
 
   socket.on('client-send-ice-candidate', async ({ data }) => {
@@ -134,6 +147,18 @@ io.on('connection', async (socket) => {
     //queue canidate and add when endpoint is ready
     else if (!candidateStore[socket.id]) candidateStore[socket.id] = [candidate]
     else candidateStore[socket.id].push(candidate)
+  })
+
+  socket.on('stop-call', async ({ data }) => {
+    const { callerId, calleeId } = data
+    const caller = sessionStore.find((i) => i.id === callerId)
+    const callee = sessionStore.find((i) => i.id === calleeId)
+    const [pipeline] = _.intersection(caller.pipelines, callee.pipelines)
+
+    if (!pipeline || !pipeline.recorderEndpoint) return
+
+    pipeline.recorderEndpoint.stop()
+    pipeline.release()
   })
 })
 
