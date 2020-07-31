@@ -1,0 +1,5 @@
+interval
+size video
+ffmpeg -analyzeduration 40M  -protocol_whitelist "file,udp,rtp" -i 127.0.0.1_55002.sdp -vcodec copy  -f mpegts  output.mp4
+ffmpeg -analyzeduration 40M  -protocol_whitelist "file,udp,rtp" -i 127.0.0.1_55000.sdp -vcodec copy -f flv rtmp://171.244.173.41:8088/live/test-token
+ffmpeg -analyzeduration 20M -protocol_whitelist "file,udp,rtp" -i 127.0.0.1_55000.sdp -vcodec copy -t 10 -f mpegts - | ffplay -
