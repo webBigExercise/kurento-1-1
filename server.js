@@ -5,6 +5,7 @@ const socketIo = require('socket.io')
 const kurento = require('kurento-client')
 const path = require('path')
 const _ = require('lodash')
+const { spawn } = require('child_process')
 
 const port = 3000
 const kurentoUrl = 'ws://localhost:8888/kurento'
@@ -144,10 +145,14 @@ io.on('connection', async (socket) => {
     const rtpSdpOffer = generateSdpStreamConfig(streamIp, streamPort, audioPort)
     await rtpEndpoint.processOffer(rtpSdpOffer)
 
-    await fs.promises.writeFile(
-      path.join('/mnt/c/Users/admin/Desktop', `${streamIp}_${streamPort}.sdp`),
-      rtpSdpOffer
+    const rtpSdpFilePath = path.join(
+      '/mnt/c/Users/admin/Desktop',
+      `${streamIp}_${streamPort}.sdp`
     )
+    await fs.promises.writeFile(rtpSdpFilePath, rtpSdpOffer)
+    const childProcess = useFfmpegToPublishRtmp(rtpSdpFilePath)
+
+    pipeline.childProcess = childProcess
 
     caller.socket.emit('start-communication', {
       data: { sdp: callerAnswerSdp },
@@ -177,6 +182,7 @@ io.on('connection', async (socket) => {
     if (!pipeline || !pipeline.recorderEndpoint) return
 
     pipeline.recorderEndpoint.stop()
+    pipeline.childProcess.kill()
     pipeline.release()
   })
 })
@@ -200,6 +206,58 @@ function generateSdpStreamConfig(nodeStreamIp, port, audioport) {
   sdpRtpOfferString += 'a=fmtp:96 packetization-mode=1\n'
 
   return sdpRtpOfferString
+}
+
+function useFfmpegToPublishRtmp(rtpSdpFilePath) {
+  const rtmpPublishUrl = `rtmp://127.0.0.1:1935/live/${
+    path.parse(rtpSdpFilePath).name.replace(/\./g, '_')
+  }`
+  const command = 'ffmpeg'
+  // const args = `-analyzeduration 40M  -protocol_whitelist "file,udp,rtp" -i ${rtpSdpFilePath} -vcodec copy -acodec copy -f flv ${rtmpPublishUrl}`
+  // console.log(args)
+  const args = [
+    '-analyzeduration',
+    '40M',
+    '-protocol_whitelist',
+    'file,udp,rtp',
+    '-i',
+    rtpSdpFilePath,
+    '-vcodec',
+    'copy',
+    '-acodec',
+    'copy',
+    '-f',
+    'flv',
+    rtmpPublishUrl,
+  ]
+  const child = spawn(command, args)
+
+  //child.stdout.on('close', () => console.log('close stdout'))
+  //child.stderr.on('close', () => console.log('close stdout'))
+
+  // child.stdout.pipe(process.stdout)
+  // child.stderr.pipe(process.stderr)
+
+  // child.stdout.on('data', (data) => {
+  //   console.log(data.toString())
+  // })
+
+  // child.stderr.on('data', data => {
+  //   console.error(data.toString())
+  // })
+
+  // child.on('close', () => {
+  //   fs.rmdir(rtpSdpFilePath, () => {})
+  // })
+
+  // child.on('disconnect', () => {
+  //   fs.rmdir(rtpSdpFilePath, () => {})
+  // })
+
+  // child.on('exit', () => {
+  //   fs.rmdir(rtpSdpFilePath, () => {})
+  // })
+  return child
 }
 
 app.use('/', express.static('.'))
