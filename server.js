@@ -3,6 +3,7 @@ const express = require('express')
 const fs = require('fs')
 const socketIo = require('socket.io')
 const kurento = require('kurento-client')
+const path = require('path')
 const _ = require('lodash')
 
 const port = 3000
@@ -17,6 +18,7 @@ const io = socketIo(server)
 const sessionStore = []
 const candidateStore = {}
 const candidateReady = {}
+let sessionIndex = 0
 
 io.on('connection', async (socket) => {
   const kurentoClient = await kurento(kurentoUrl)
@@ -48,6 +50,7 @@ io.on('connection', async (socket) => {
     const pipeline = await kurentoClient.create('MediaPipeline')
     const calleeWebRtcEndpoint = await pipeline.create('WebRtcEndpoint')
     const callerWebRtcEndpoint = await pipeline.create('WebRtcEndpoint')
+    const rtpEndpoint = await pipeline.create('RtpEndpoint')
     const recorderEndpoint = await pipeline.create('RecorderEndpoint', {
       // mediaProfile: 'MP4',
       uri:
@@ -66,6 +69,7 @@ io.on('connection', async (socket) => {
     const callerHubport = await composite.createHubPort()
     const calleeHubport = await composite.createHubPort()
     const recorderHubport = await composite.createHubPort()
+    const rtpHubport = await composite.createHubPort()
 
     // still not guarantee webRtcEndpoint can add all candidate
     // demo only
@@ -99,12 +103,14 @@ io.on('connection', async (socket) => {
 
     await calleeWebRtcEndpoint.connect(callerWebRtcEndpoint)
     await callerWebRtcEndpoint.connect(calleeWebRtcEndpoint)
-    await callerWebRtcEndpoint.connect(recorderEndpoint)
+    // await callerWebRtcEndpoint.connect(recorderEndpoint)
     // await recorderEndpoint.record()
 
-    // await recorderHubport.connect(recorderEndpoint)
-    // await callerWebRtcEndpoint.connect(callerHubport)
-    // await calleeWebRtcEndpoint.connect(calleeHubport)
+    await callerWebRtcEndpoint.connect(callerHubport)
+    await calleeWebRtcEndpoint.connect(calleeHubport)
+    await recorderHubport.connect(recorderEndpoint)
+    await rtpHubport.connect(rtpEndpoint)
+
     // await callerHubport.connect(callerWebRtcEndpoint)
     // await calleeHubport.connect(calleeWebRtcEndpoint)
 
@@ -129,6 +135,19 @@ io.on('connection', async (socket) => {
 
     const calleeAnswerSdp = await calleeWebRtcEndpoint.processOffer(callee.sdp)
     await calleeWebRtcEndpoint.gatherCandidates()
+
+    const streamPort = 55000 + sessionIndex * 2
+    const audioPort = 49170 + sessionIndex * 2
+    sessionIndex++ //change to next port
+    const streamIp = '127.0.0.1'
+
+    const rtpSdpOffer = generateSdpStreamConfig(streamIp, streamPort, audioPort)
+    await rtpEndpoint.processOffer(rtpSdpOffer)
+
+    await fs.promises.writeFile(
+      path.join('/mnt/c/Users/admin/Desktop', `${streamIp}_${streamPort}.sdp`),
+      rtpSdpOffer
+    )
 
     caller.socket.emit('start-communication', {
       data: { sdp: callerAnswerSdp },
@@ -161,6 +180,27 @@ io.on('connection', async (socket) => {
     pipeline.release()
   })
 })
+
+function generateSdpStreamConfig(nodeStreamIp, port, audioport) {
+  //get this value from /etc/kurento/modules/kurento/SdpEndpoint.conf.json
+  const audioSampleRate = 22050
+  let sdpRtpOfferString = 'v=0\n'
+
+  sdpRtpOfferString += 'o=- 0 0 IN IP4 ' + nodeStreamIp + '\n'
+  sdpRtpOfferString += 's=KMS\n'
+  sdpRtpOfferString += 'c=IN IP4 ' + nodeStreamIp + '\n'
+  sdpRtpOfferString += 't=0 0\n'
+  sdpRtpOfferString += 'm=audio ' + audioport + ' RTP/AVP 97\n'
+  sdpRtpOfferString += 'a=recvonly\n'
+  sdpRtpOfferString += 'a=rtpmap:97 PCMU/' + audioSampleRate + '\n'
+  sdpRtpOfferString +=
+    'a=fmtp:97 profile-level-id=1;mode=AAC-hbr;sizelength=13;indexlength=3;indexdeltalength=3;config=1508\n'
+  sdpRtpOfferString += 'm=video ' + port + ' RTP/AVP 96\n'
+  sdpRtpOfferString += 'a=rtpmap:96 H264/90000\n'
+  sdpRtpOfferString += 'a=fmtp:96 packetization-mode=1\n'
+
+  return sdpRtpOfferString
+}
 
 app.use('/', express.static('.'))
 server.listen(port, () => console.log('server is started on port: ' + port))
