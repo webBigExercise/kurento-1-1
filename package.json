@@ -6,10 +6,13 @@
   "dependencies": {
     "express": "^4.17.1",
     "kurento-client": "^6.14.0",
-    "kurento-utils": "^6.14.0",
     "lodash": "^4.17.19",
+    "node-media-server": "^2.2.2",
     "socket.io": "^2.3.0",
+
+
     "socket.io-client": "^2.3.0",
+    "kurento-utils": "^6.14.0",
     "webrtc-adapter": "^7.6.3"
   },
   "devDependencies": {

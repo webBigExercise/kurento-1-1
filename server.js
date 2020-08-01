@@ -150,9 +150,9 @@ io.on('connection', async (socket) => {
       `${streamIp}_${streamPort}.sdp`
     )
     await fs.promises.writeFile(rtpSdpFilePath, rtpSdpOffer)
-    const childProcess = useFfmpegToPublishRtmp(rtpSdpFilePath)
+    // const childProcess = useFfmpegToPublishRtmp(rtpSdpFilePath)
 
-    pipeline.childProcess = childProcess
+    // pipeline.childProcess = childProcess
 
     caller.socket.emit('start-communication', {
       data: { sdp: callerAnswerSdp },
@@ -232,8 +232,8 @@ function useFfmpegToPublishRtmp(rtpSdpFilePath) {
   ]
   const child = spawn(command, args)
 
-  //child.stdout.on('close', () => console.log('close stdout'))
-  //child.stderr.on('close', () => console.log('close stdout'))
+  // child.stdout.on('close', () => console.log('close stdout'))
+  // child.stderr.on('close', () => console.log('close stdout'))
 
   // child.stdout.pipe(process.stdout)
   // child.stderr.pipe(process.stderr)
