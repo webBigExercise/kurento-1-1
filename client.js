@@ -1,7 +1,9 @@
 const io = require('socket.io-client')
 const kurentoUtils = require('kurento-utils')
+require('webrtc-adapter')
 
-const wsUrl = `https://localhost:3000`
+//const wsUrl = `https://localhost:3000`
+const wsUrl = location.host
 const socket = io(wsUrl)
 let webRtcPeer
 
